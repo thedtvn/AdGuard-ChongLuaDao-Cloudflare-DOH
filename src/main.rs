@@ -7,7 +7,6 @@ use base64::Engine;
 use qstring::QString;
 use base64::engine::general_purpose;
 use dns_parser::{Builder, Packet};
-use uuid::Uuid;
 use url::Url;
 
 async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<HashSet<String>>) -> impl Responder {
@@ -18,8 +17,23 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
         if val.is_none() {
             return HttpResponse::BadRequest().body("no 'dns' query parameter found");
         } else {
-            let val_qr = val.unwrap().to_string();
-            dns_q = general_purpose::STANDARD.decode(val_qr.to_string()).unwrap();
+            let val_qr = val.unwrap();
+            let decode_ch = general_purpose::STANDARD_NO_PAD.decode(val_qr.to_string());
+            let var_cl = val_qr.to_string();
+            if decode_ch.is_err() {
+                let client = reqwest::Client::new();
+                let dns_req = client.get(format!("https://dns.cloudflare.com/dns-query?dns={}", var_cl)).send().await.unwrap();
+                let status = dns_req.status().as_u16();
+                let headers = dns_req.headers().clone();
+                let body = dns_req.bytes_stream();
+                let mut http_rp = HttpResponseBuilder::new(StatusCode::from_u16(status).unwrap()).streaming(body);
+                let head = headers.get("Content-Type");
+                if head.is_some() {
+                    http_rp.headers_mut().insert("Content-Type".parse().unwrap(), head.unwrap().to_str().unwrap().parse().unwrap());
+                }
+                return HttpResponse::from(http_rp);
+            }
+            dns_q = decode_ch.unwrap();
         }
     } else if req.method() == Method::POST {
         if bytes_body.is_empty() {
@@ -27,15 +41,28 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
         }
         dns_q = bytes_body.to_vec();
     }
-    let dns = Packet::parse(dns_q.as_slice()).unwrap();
+    let dns_check = Packet::parse(dns_q.as_slice());
+    if dns_check.is_err() {
+        let client = reqwest::Client::new();
+        let dns_encode = general_purpose::STANDARD.encode(dns_q);
+        let dns_req = client.get(format!("https://dns.cloudflare.com/dns-query?dns={}", dns_encode)).send().await.unwrap();
+        let status = dns_req.status().as_u16();
+        let headers = dns_req.headers().clone();
+        let body = dns_req.bytes_stream();
+        let mut http_rp = HttpResponseBuilder::new(StatusCode::from_u16(status).unwrap()).streaming(body);
+        let head = headers.get("Content-Type");
+        if head.is_some() {
+            http_rp.headers_mut().insert("Content-Type".parse().unwrap(), head.unwrap().to_str().unwrap().parse().unwrap());
+        }
+        return HttpResponse::from(http_rp);
+    }
+    let dns = dns_check.unwrap();
     let mut new_dns_req = Builder::new_query(dns.header.id, dns.header.recursion_desired);
     let dns_rs = dns.questions;
     for i in dns_rs {
+        println!("{:?}", i);
         if !domains.contains(&*i.qname.to_string()) {
             new_dns_req.add_question(i.qname.to_string().as_str(), i.prefer_unicast, i.qtype, i.qclass);
-        } else {
-            let fake_domain = Uuid::new_v4().to_string().replace("-", "");
-            new_dns_req.add_question(&*fake_domain, i.prefer_unicast, i.qtype, i.qclass);
         }
     }
     let client = reqwest::Client::new();
@@ -45,7 +72,10 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
     let headers = dns_req.headers().clone();
     let body = dns_req.bytes_stream();
     let mut http_rp = HttpResponseBuilder::new(StatusCode::from_u16(status).unwrap()).streaming(body);
-    http_rp.headers_mut().insert("Content-Type".parse().unwrap(), headers.get("Content-Type").unwrap().to_str().unwrap().parse().unwrap());
+    let head = headers.get("Content-Type");
+    if head.is_some() {
+        http_rp.headers_mut().insert("Content-Type".parse().unwrap(), head.unwrap().to_str().unwrap().parse().unwrap());
+    }
     HttpResponse::from(http_rp)
 }
 
