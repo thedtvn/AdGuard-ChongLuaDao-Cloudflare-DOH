@@ -63,6 +63,8 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
         println!("{:?}", i);
         if !domains.contains(&*i.qname.to_string()) {
             new_dns_req.add_question(i.qname.to_string().as_str(), i.prefer_unicast, i.qtype, i.qclass);
+        } else {
+            new_dns_req.add_question(&*uuid::Uuid::new_v4().to_string(), i.prefer_unicast, i.qtype, i.qclass);
         }
     }
     let client = reqwest::Client::new();
