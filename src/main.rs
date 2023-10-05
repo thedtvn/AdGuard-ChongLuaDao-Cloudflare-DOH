@@ -89,6 +89,24 @@ async fn update_ads() -> HashSet<String> {
             cache_set.insert(i.to_string());
         }
     }
+    let ads_list_easylist = client.get("https://v.firebog.net/hosts/Easylist.txt").send().await.unwrap();
+    let ads_list_text_easylist = ads_list_easylist.text().await.unwrap();
+    for i in ads_list_text_easylist.lines() {
+        if !(i.starts_with("#") || i.is_empty()) {
+            if !cache_set.contains(i) {
+                cache_set.insert(i.to_string());
+            }
+        }
+    }
+    let ads_list_admiral = client.get("https://v.firebog.net/hosts/Admiral.txt").send().await.unwrap();
+    let ads_list_text_admiral = ads_list_admiral.text().await.unwrap();
+    for i in ads_list_text_admiral.lines() {
+        if !(i.starts_with("#") || i.is_empty()) {
+            if !cache_set.contains(i) {
+                cache_set.insert(i.to_string());
+            }
+        }
+    }
     let cld_list = client.get("https://api.chongluadao.vn/v2/blacklist").send().await.unwrap();
     let ads_list_json = cld_list.json::<json_obj::CldList>().await.unwrap();
     for i in ads_list_json {
@@ -110,7 +128,7 @@ async fn main() -> std::io::Result<()> {
         App::new().app_data(domains_appdata.clone())
             .route("/dns-query", web::get().to(dns_query))
             .route("/dns-query", web::post().to(dns_query))
-    }).bind(("127.0.0.1", 8080))?;
+    }).bind(("127.0.0.1", 2001))?;
     println!("Server starting...");
     http_server.run().await
 }
