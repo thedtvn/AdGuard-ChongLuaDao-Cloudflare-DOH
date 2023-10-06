@@ -3,7 +3,9 @@ mod json_obj;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder, HttpRequest, HttpResponseBuilder};
+use actix_web::dev::ServiceResponse;
 use actix_web::http::{Method, StatusCode};
+use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
 use base64::Engine;
 use qstring::QString;
 use dns_message_parser::{Dns, DomainName};
@@ -147,12 +149,19 @@ async fn update_ads() -> HashSet<String> {
     cache_set
 }
 
+fn mdw_404<B, E>(mut res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>, E> {
+    res.response_mut().status_mut().clone_from(&StatusCode::GATEWAY_TIMEOUT);
+    Ok(ErrorHandlerResponse::Response(res.map_into_left_body()))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let domains:HashSet<String> = update_ads().await;
     let domains_appdata = web::Data::new(domains.clone());
     let http_server = HttpServer::new(move || {
-        App::new().app_data(domains_appdata.clone())
+        App::new().wrap(ErrorHandlers::new()
+            .handler(StatusCode::NOT_FOUND, mdw_404)
+            ).app_data(domains_appdata.clone())
             .route("/dns-query", web::get().to(dns_query))
             .route("/dns-query", web::post().to(dns_query))
     }).bind(("127.0.0.1", 2001))?;
