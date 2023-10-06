@@ -75,9 +75,7 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
             log::info!("Blocked domain: {:?}", i.qname.to_string());
             let uuid_f = uuid::Uuid::new_v4().to_string();
             cache_fake_domain.insert(uuid_f.clone(), i.qname.to_string());
-            let ext = tldextract::TldExtractor::new(tldextract::TldOption::default());
-            let domain = ext.extract(&*i.qname.to_string()).unwrap();
-            new_dns_req.add_question(&*format!("{}.{}", uuid_f, domain.suffix.unwrap()), i.prefer_unicast, i.qtype, i.qclass);
+            new_dns_req.add_question(&*uuid_f, i.prefer_unicast, i.qtype, i.qclass);
         }
     }
     let client = reqwest::Client::new();
