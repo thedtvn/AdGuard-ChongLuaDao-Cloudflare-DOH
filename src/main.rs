@@ -80,6 +80,8 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
             let mut topdomain = "".to_string();
             if domain.domain.is_some() && domain.suffix.is_some() {
                 topdomain = format!(".{}.{}", domain.domain.unwrap(), domain.suffix.unwrap());
+            } else if domain.suffix.is_some() {
+                topdomain = format!(".{}", domain.suffix.unwrap());
             }
             new_dns_req.add_question(&*format!("{}{}", uuid_f, topdomain), i.prefer_unicast, i.qtype, i.qclass);
         }
