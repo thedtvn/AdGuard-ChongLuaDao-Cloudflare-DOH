@@ -63,10 +63,10 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
     let dns_rs = dns.questions;
     let mut cache_fake_domain = HashMap::new();
     for i in dns_rs {
-        println!("{:?}", i);
         if !domains.contains(&*i.qname.to_string()) {
             new_dns_req.add_question(i.qname.to_string().as_str(), i.prefer_unicast, i.qtype, i.qclass);
         } else {
+            println!("Blocked domain: {:?}", i.qname.to_string());
             let uuid_f = uuid::Uuid::new_v4().to_string();
             cache_fake_domain.insert(uuid_f.clone(), i.qname.to_string());
             new_dns_req.add_question(&*uuid_f, i.prefer_unicast, i.qtype, i.qclass);
@@ -83,7 +83,6 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
     for i in dns_old.questions {
         let mut domain = i.domain_name.to_string();
         domain.replace_range(domain.len()-1..domain.len(), "");
-        println!("{}", domain);
         if cache_fake_domain.contains_key(&*domain) {
             questions_map.push(dns_message_parser::question::Question { domain_name: DomainName::from_str(&*domain).unwrap(), q_class: i.q_class, q_type: i.q_type });
         } else {
