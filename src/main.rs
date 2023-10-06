@@ -13,6 +13,10 @@ use base64::engine::general_purpose;
 use dns_parser::{Builder, Packet};
 use url::Url;
 
+use log::LevelFilter;
+use chrono::Local;
+use std::io::Write;
+
 async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<HashSet<String>>) -> impl Responder {
     let mut dns_q = Vec::new();
     if req.method() == Method::GET {
@@ -68,7 +72,7 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
         if !domains.contains(&*i.qname.to_string()) {
             new_dns_req.add_question(i.qname.to_string().as_str(), i.prefer_unicast, i.qtype, i.qclass);
         } else {
-            println!("Blocked domain: {:?}", i.qname.to_string());
+            log::info!("Blocked domain: {:?}", i.qname.to_string());
             let uuid_f = uuid::Uuid::new_v4().to_string();
             cache_fake_domain.insert(uuid_f.clone(), i.qname.to_string());
             new_dns_req.add_question(&*uuid_f, i.prefer_unicast, i.qtype, i.qclass);
@@ -156,6 +160,19 @@ fn mdw_404<B, E>(mut res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>,
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+
+    env_logger::Builder::new()
+        .format(|buf, record| {
+            writeln!(buf,
+                "[{}] [{}] - {}",
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.args()
+            )
+        })
+        .filter(None, LevelFilter::Info)
+        .init();
+
     let domains:HashSet<String> = update_ads().await;
     let domains_appdata = web::Data::new(domains.clone());
     let http_server = HttpServer::new(move || {
@@ -165,6 +182,6 @@ async fn main() -> std::io::Result<()> {
             .route("/dns-query", web::get().to(dns_query))
             .route("/dns-query", web::post().to(dns_query))
     }).bind(("127.0.0.1", 2001))?;
-    println!("Server starting...");
+    log::info!("Server starting...");
     http_server.run().await
 }
