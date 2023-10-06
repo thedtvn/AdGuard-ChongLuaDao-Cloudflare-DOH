@@ -1,10 +1,12 @@
 mod json_obj;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder, HttpRequest, HttpResponseBuilder};
 use actix_web::http::{Method, StatusCode};
 use base64::Engine;
 use qstring::QString;
+use dns_message_parser::{Dns, DomainName};
 use base64::engine::general_purpose;
 use dns_parser::{Builder, Packet};
 use url::Url;
@@ -59,12 +61,15 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
     let dns = dns_check.unwrap();
     let mut new_dns_req = Builder::new_query(dns.header.id, dns.header.recursion_desired);
     let dns_rs = dns.questions;
+    let mut cache_fake_domain = HashMap::new();
     for i in dns_rs {
         println!("{:?}", i);
         if !domains.contains(&*i.qname.to_string()) {
             new_dns_req.add_question(i.qname.to_string().as_str(), i.prefer_unicast, i.qtype, i.qclass);
         } else {
-            new_dns_req.add_question(&*uuid::Uuid::new_v4().to_string(), i.prefer_unicast, i.qtype, i.qclass);
+            let uuid_f = uuid::Uuid::new_v4().to_string();
+            cache_fake_domain.insert(uuid_f.clone(), i.qname.to_string());
+            new_dns_req.add_question(&*uuid_f, i.prefer_unicast, i.qtype, i.qclass);
         }
     }
     let client = reqwest::Client::new();
@@ -72,8 +77,29 @@ async fn dns_query(req: HttpRequest, bytes_body: web::Bytes, domains: web::Data<
     let dns_req = client.get(format!("https://dns.cloudflare.com/dns-query?dns={}", dns_encode)).send().await.unwrap();
     let status = dns_req.status().as_u16();
     let headers = dns_req.headers().clone();
-    let body = dns_req.bytes_stream();
-    let mut http_rp = HttpResponseBuilder::new(StatusCode::from_u16(status).unwrap()).streaming(body);
+    let body = dns_req.bytes().await.unwrap();
+    let dns_old = Dns::decode(body).unwrap();
+    let mut questions_map = Vec::new();
+    for i in dns_old.questions {
+        let mut domain = i.domain_name.to_string();
+        domain.replace_range(domain.len()-1..domain.len(), "");
+        println!("{}", domain);
+        if cache_fake_domain.contains_key(&*domain) {
+            questions_map.push(dns_message_parser::question::Question { domain_name: DomainName::from_str(&*domain).unwrap(), q_class: i.q_class, q_type: i.q_type });
+        } else {
+            questions_map.push(i);
+        }
+    }
+    let new_dns_r = Dns {
+        id: dns_old.id,
+        flags: dns_old.flags,
+        questions: questions_map,
+        answers: dns_old.answers,
+        authorities: dns_old.authorities,
+        additionals: dns_old.additionals,
+    };
+    let body = new_dns_r.encode().unwrap();
+    let mut http_rp = HttpResponseBuilder::new(StatusCode::from_u16(status).unwrap()).body(body);
     let head = headers.get("Content-Type");
     if head.is_some() {
         http_rp.headers_mut().insert("Content-Type".parse().unwrap(), head.unwrap().to_str().unwrap().parse().unwrap());
