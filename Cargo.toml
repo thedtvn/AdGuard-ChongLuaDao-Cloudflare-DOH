@@ -10,7 +10,6 @@ actix-web = "4"
 reqwest = { version = "0.11", features = ["json", "default", "stream"] }
 tldextract = "0.6.0"
 dns-parser = "0.8"
-dns-message-parser = "0.7.0"
 base64 = "0.21"
 bytes = "1"
 qstring = "0.7.2"
